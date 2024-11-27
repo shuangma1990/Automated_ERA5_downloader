@@ -5,16 +5,13 @@
 
 
 # quick steps to use this script:
-# 1. Navigate with keyword 'optional' to switch setups upon your need
+# 1. Navigate with keyword 'optional' to edit area if you don't need the global data and dataset name if you don't need the default dataset 'reanalysis-era5-single-levels'
 # 2. After your edits, rename the file if needed
+# 3. In your terminal, run: 
+#    python ERA5_downloader_daily_example.py --output_dir /Volumes/easystore/ERA5_single_level_2mTemp/ --variables 2m_temperature --start_year 1961 --end_year 1990 --months 01 02, --days 01 02
 
-# 3. Convert .ipynb to .py: jupyter nbconvert --to script ERA5_downloader_2mTemp.ipynb (navigate to file dir first)
-
-# 4. In your terminal, run: 
-#    python ERA5_downloader_2mTemp.py --output_dir /Volumes/easystore/ERA5_single_level_2mTemp/ --variables 2m_temperature --start_year 1961 --end_year 1990 --max_workers 6
-
-#    where --outputdir is destination to download the data, --variable is ERA5 climate variables of interest and can be single or multiple, 
-#    the script will submit a request and save in one .nc file for each year between the --start_year and --end_year 
+#    where --outputdir is destination to download the data, --variable is ERA5 climate variables of interest and can be single or multiple, by default it downloads 1-31 days and 1-12 month, all 24 hours, for each year
+#    the script will submit one request and save in one .nc file for each year between the --start_year and --end_year 
 #    --max_workers is the number of requests to the server submitted at a time.
 #    the script will automatically search for years that already exist in your destination directory, 
 #    avoid having to download the same file again, if the previous API call got intterupted and have to run the script another time.
@@ -68,7 +65,7 @@ def verify_netcdf(file_path):
 
 # Function to download data for a specific year with retries
 @retry(max_retries=5, initial_delay=60, backoff_factor=2)
-def download_year(year, client, output_dir, variables):
+def download_year(year, client, output_dir, variables,months,days,hours):
     # Construct the output file name based on variables
     if len(variables) == 1:
         vars_str = variables[0]
@@ -99,10 +96,11 @@ def download_year(year, client, output_dir, variables):
                 'product_type': 'reanalysis',
                 'variable': variables,  # List of variables
                 'year': str(year),
-                'month': [str(i).zfill(2) for i in range(1, 13)],  # optional Months from January to December 1-13
-                'day': [str(i).zfill(2) for i in range(1, 32)],    # optional All days in a month 1-32
-                'time': [f'{i:02d}:00' for i in range(24)],        # optional All hours of the day 24
+                'month': months,  # optional Months from January to December 1-13
+                'day': days,    # optional All days in a month 1-32
+                'time': hours,        # optional All hours of the day 24
                 'format': 'netcdf',  # Download format (NetCDF)
+                "area": [90, -180, -90, 180]                       # optional remove for global, toggle for different areas [N, W, S, E]
             },
             file_path  # Output file name for each year and variable(s)
         )
@@ -129,9 +127,14 @@ def main():
                         help='Variables to download from ERA5 (default: 2m_temperature)')
     parser.add_argument('--start_year', type=int, default=1961, help='Start year for download (inclusive)')
     parser.add_argument('--end_year', type=int, default=1989, help='End year for download (inclusive)')
-    parser.add_argument('--max_workers', type=int, default=4,
+    parser.add_argument('--max_workers', type=int, default=10,
                         help='Maximum number of concurrent downloads (default: 4)')
-    
+    parser.add_argument('--months', type=str, nargs='+', default=[str(i).zfill(2) for i in range(1, 13)], 
+                        help="Months to download (default: all months)")
+    parser.add_argument('--days', type=str, nargs='+', default=[str(i).zfill(2) for i in range(1, 32)], 
+                        help="Days to download (default: all days)")
+    parser.add_argument('--hours', type=str, nargs='+', default=[f'{i:02d}:00' for i in range(24)], 
+                        help="Hours to download (default: all hours)")    
     args = parser.parse_args()
     
     # Ensure output directory exists
@@ -160,7 +163,7 @@ def main():
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_workers) as executor:
         # Submit all download tasks
         futures = [
-            executor.submit(download_year, year, client, args.output_dir, args.variables) for year in years
+            executor.submit(download_year, year, client, args.output_dir, args.variables,args.months,arg.days,arg.hours) for year in years
         ]
         for future in concurrent.futures.as_completed(futures):
             try:
